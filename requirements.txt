@@ -1,0 +1,10 @@
+torch>=2.0.0
+torchaudio>=2.0.0
+torchvision>=0.15.0
+numpy>=1.21.0
+matplotlib>=3.4.0
+scipy>=1.7.0
+scikit-learn>=0.24.0
+tqdm>=4.62.0
+tensorboard>=2.8.0
+spikingjelly @ git+https://github.com/fangwei123456/spikingjelly.git 

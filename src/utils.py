@@ -76,43 +76,52 @@ def hz_to_mel(frequencies: Union[torch.Tensor, float], dct_type: str = 'slaney')
     return mels
 
 def create_mel_filters(
-    n_mels: int,
-    n_fft: int,
+    n_freqs: int,
     f_min: float,
     f_max: float,
+    n_mels: int,
     sample_rate: int,
-    dct_type: str = 'slaney'
-) -> torch.Tensor:
+    dct_type: Optional[str] = 'slaney') -> torch.Tensor:
     """Create mel filterbank matrix.
     
     Args:
-        n_mels: Number of mel bands
-        n_fft: Number of FFT components
+        n_freqs: Number of frequency bins
         f_min: Minimum frequency
         f_max: Maximum frequency
-        sample_rate: Sample rate of the audio
-        dct_type: Type of DCT to use ('htk' or 'slaney')
+        n_mels: Number of mel bands
+        sample_rate: Sample rate
+        dct_type: Type of DCT ('htk' or 'slaney')
         
     Returns:
         Mel filterbank matrix
     """
-    # Convert frequencies to mel scale
-    f_min_mel = hz_to_mel(f_min, dct_type)
-    f_max_mel = hz_to_mel(f_max, dct_type)
-    mels = torch.linspace(f_min_mel, f_max_mel, n_mels + 1)
-    
-    # Convert mel scale back to Hz
-    freqs = mel_to_hz(mels, dct_type)
-    
-    # Convert frequencies to FFT bin numbers
-    bins = torch.floor((n_fft + 1) * freqs / sample_rate)
-    
-    # Create filterbank matrix
-    fbank = torch.zeros((n_mels, n_fft // 2 + 1))
-    for i in range(n_mels):
-        for j in range(int(bins[i]), int(bins[i + 1])):
-            fbank[i, j] = (j - bins[i]) / (bins[i + 1] - bins[i])
-        for j in range(int(bins[i + 1]), int(bins[i + 2])):
-            fbank[i, j] = (bins[i + 2] - j) / (bins[i + 2] - bins[i + 1])
-            
-    return fbank 
+    if dct_type != "htk" and dct_type != "slaney":
+        raise ValueError("DCT type must be either 'htk' or 'slaney'")
+
+    # freq bins
+    # Equivalent filterbank construction by Librosa
+    all_freqs = torch.linspace(0, sample_rate // 2, n_freqs)
+
+    # calculate mel freq bins
+    # hertz to mel(f)
+    m_min = hz_to_mel(f_min, dct_type)
+    m_max = hz_to_mel(f_max, dct_type)
+    m_pts = torch.linspace(m_min, m_max, n_mels + 2)
+    # mel to hertz(mel)
+    f_pts = mel_to_hz(m_pts, dct_type)
+    # calculate the difference between each mel point and each stft freq point in hertz
+    f_diff = f_pts[1:] - f_pts[:-1]  # (n_mels + 1)
+    # (n_freqs, n_mels + 2)
+    slopes = f_pts.unsqueeze(0) - all_freqs.unsqueeze(1)
+    # create overlapping triangles
+    zero = torch.zeros(1)
+    down_slopes = (-1.0 * slopes[:, :-2]) / f_diff[:-1]  # (n_freqs, n_mels)
+    up_slopes = slopes[:, 2:] / f_diff[1:]  # (n_freqs, n_mels)
+    fb = torch.max(zero, torch.min(down_slopes, up_slopes))
+
+    if dct_type == "slaney":
+        # Slaney-style mel is scaled to be approx constant energy per channel
+        enorm = 2.0 / (f_pts[2:n_mels + 2] - f_pts[:n_mels])
+        fb *= enorm.unsqueeze(0)
+
+    return fb 
